@@ -1,8 +1,9 @@
-# UMD Loop 2026 || Challenge Week || Phase 1 || Problem S1
+# UMD Loop 2026 || Phase 1 || Problem S1
 
-build: colcon build --packages-select waypoint_nav --symlink-install
-launch: ros2 launch waypoint_nav spawn_demo.launch.py
-launch alt: sh launch.sh count:=8 seed:=42 gui:=true
+## Setup
+
+**build**: colcon build --packages-select waypoint_nav --symlink-install\
+**launch**: ros2 launch waypoint_nav spawn_demo.launch.py count:={int} seed:={int}
 
 ## Lidar
 
