@@ -1,0 +1,128 @@
+<?xml version="1.0" ?>
+<!--
+  Box vehicle: 2 m long (x, forward), 1 m wide (y), 1 m tall (z), with a flat
+  triangle on the roof pointing along +x and a forward-facing 2D lidar on the
+  front face.
+
+  Motion comes from the VelocityControl system, which sets the model's
+  body-frame velocity every physics step. The physics engine still resolves
+  contacts during that step, so the box is stopped by walls rather than
+  passing through them.
+
+  Topics (gz transport, bridged 1:1 into ROS 2 by the launch file):
+    /vehicle/cmd_vel  gz.msgs.Twist     in  linear.x (m/s), angular.z (rad/s)
+    /vehicle/odom     gz.msgs.Odometry  out
+    /vehicle/scan     gz.msgs.LaserScan out  181 beams, starboard to port
+
+  The lidar needs gz::sim::systems::Sensors in the world (it is in
+  worlds/spawn_def.sdf); without it the sensor is parsed but never rendered
+  and /vehicle/scan stays silent.
+-->
+<sdf version="1.9">
+  <model name="vehicle">
+    <link name="base_link">
+      <inertial>
+        <mass>10.0</mass>
+        <!-- Solid cuboid 2 x 1 x 1: I_xx = m * (y^2 + z^2) / 12, etc. -->
+        <inertia>
+          <ixx>1.6667</ixx><ixy>0</ixy><ixz>0</ixz>
+          <iyy>4.1667</iyy><iyz>0</iyz>
+          <izz>4.1667</izz>
+        </inertia>
+      </inertial>
+
+      <collision name="body_collision">
+        <geometry><box><size>2 1 1</size></box></geometry>
+      </collision>
+      <visual name="body_visual">
+        <geometry><box><size>2 1 1</size></box></geometry>
+        <material>
+          <ambient>0.8 0.3 0.1 1</ambient>
+          <diffuse>0.8 0.3 0.1 1</diffuse>
+        </material>
+      </visual>
+
+      <!-- Visual only, so it never affects contacts. Sits 1 mm above the
+           roof (z = 0.5) to avoid z-fighting with the box's top face. -->
+      <visual name="heading_arrow">
+        <pose>0 0 0.501 0 0 0</pose>
+        <geometry>
+          <polyline>
+            <point>0.9 0</point>
+            <point>-0.7 0.4</point>
+            <point>-0.7 -0.4</point>
+            <height>0.02</height>
+          </polyline>
+        </geometry>
+        <material>
+          <ambient>1 0.9 0.1 1</ambient>
+          <diffuse>1 0.9 0.1 1</diffuse>
+        </material>
+      </visual>
+
+      <!-- Lidar mount, visual only. It sits behind the sensor origin on
+           purpose: the GPU lidar rasterizes the scene's visuals, so anything
+           drawn in front of the sensor would occlude its own beams. Spans
+           x = 0.99 .. 1.05, just proud of the front face at x = 1.0. -->
+      <visual name="lidar_mount_visual">
+        <pose>1.02 0 0.25 0 0 0</pose>
+        <geometry><box><size>0.06 0.14 0.08</size></box></geometry>
+        <material>
+          <ambient>0.1 0.1 0.12 1</ambient>
+          <diffuse>0.1 0.1 0.12 1</diffuse>
+        </material>
+      </visual>
+
+      <!-- 2D scanning lidar 0.06 m ahead of the mount, 0.75 m off the ground.
+           The 180 deg fan is measured from +x, so every beam points forward
+           of the sensor and none of them can graze the vehicle itself.
+
+           181 samples over [-pi/2, pi/2] puts a beam every 1.0 deg, with
+           beams on both edges and one exactly straight ahead. max range 10 m
+           matches the spawner's default bound, so a clear beam reading 10 m
+           means "nothing between here and the edge of the world". -->
+      <sensor name="front_lidar" type="gpu_lidar">
+        <pose>1.06 0 0.25 0 0 0</pose>
+        <topic>/vehicle/scan</topic>
+        <update_rate>10</update_rate>
+        <always_on>1</always_on>
+        <visualize>true</visualize>
+        <lidar>
+          <scan>
+            <horizontal>
+              <samples>181</samples>
+              <resolution>1</resolution>
+              <min_angle>-1.5707963</min_angle>
+              <max_angle>1.5707963</max_angle>
+            </horizontal>
+            <!-- One row: this is a 2D scanner, not a spinning 3D puck. -->
+            <vertical>
+              <samples>1</samples>
+              <resolution>1</resolution>
+              <min_angle>0</min_angle>
+              <max_angle>0</max_angle>
+            </vertical>
+          </scan>
+          <range>
+            <min>0.1</min>
+            <max>10.0</max>
+            <resolution>0.01</resolution>
+          </range>
+        </lidar>
+      </sensor>
+    </link>
+
+    <plugin filename="gz-sim-velocity-control-system"
+            name="gz::sim::systems::VelocityControl">
+      <topic>/vehicle/cmd_vel</topic>
+    </plugin>
+    <plugin filename="gz-sim-odometry-publisher-system"
+            name="gz::sim::systems::OdometryPublisher">
+      <odom_topic>/vehicle/odom</odom_topic>
+      <odom_frame>odom</odom_frame>
+      <robot_base_frame>vehicle/base_link</robot_base_frame>
+      <odom_publish_frequency>30</odom_publish_frequency>
+      <dimensions>2</dimensions>
+    </plugin>
+  </model>
+</sdf>
