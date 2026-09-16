@@ -1,0 +1,88 @@
+<?xml version="1.0" ?>
+<!--
+  Ground-plane world with the vehicle at the origin, for spawn_demo.launch.py.
+  The vehicle carries a front-mounted 2D lidar; the Sensors system below is
+  what renders it.
+
+  The world name must match WORLD_NAME in the launch file: Gazebo derives the
+  /world/<name>/create service path from it.
+-->
+<sdf version="1.9">
+  <world name="spawn_demo">
+    <physics name="1ms" type="ignored">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+
+    <plugin filename="gz-sim-physics-system"
+            name="gz::sim::systems::Physics"/>
+    <!-- Provides /world/<name>/create, which the spawner calls. -->
+    <plugin filename="gz-sim-user-commands-system"
+            name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-scene-broadcaster-system"
+            name="gz::sim::systems::SceneBroadcaster"/>
+    <!-- Renders every <sensor> in the world, which is what actually produces
+         the vehicle's lidar scan. No <render_engine> element here on purpose:
+         leaving it out lets the render engine chosen on the gz sim command
+         line by spawn_demo.launch.py apply to the server as well as the GUI. -->
+    <plugin filename="gz-sim-sensors-system"
+            name="gz::sim::systems::Sensors"/>
+
+    <gravity>0 0 -9.8</gravity>
+    <scene>
+      <ambient>0.4 0.4 0.4 1</ambient>
+      <background>0.7 0.7 0.7 1</background>
+      <shadows>true</shadows>
+    </scene>
+
+    <light type="directional" name="sun">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <attenuation>
+        <range>1000</range>
+        <constant>0.9</constant>
+        <linear>0.01</linear>
+        <quadratic>0.001</quadratic>
+      </attenuation>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>100 100</size>
+            </plane>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>100 100</size>
+            </plane>
+          </geometry>
+          <material>
+            <ambient>0.8 0.8 0.8 1</ambient>
+            <diffuse>0.8 0.8 0.8 1</diffuse>
+            <specular>0.8 0.8 0.8 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Resolved through GZ_SIM_RESOURCE_PATH, which the launch file points
+         at this package's models/ directory. z = 0.25 rests the 0.5 m tall
+         body on the ground. -->
+    <include>
+      <uri>model://vehicle</uri>
+      <name>vehicle</name>
+      <pose>0 0 0.25 0 0 0</pose>
+    </include>
+  </world>
+</sdf>

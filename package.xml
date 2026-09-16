@@ -2,16 +2,21 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>waypoint_nav</name>
-  <version>0.0.0</version>
-  <description>TODO: Package description</description>
-  <maintainer email="aduff001@todo.todo">aduff001</maintainer>
-  <license>TODO: License declaration</license>
+  <version>0.1.0</version>
+  <description>Solution for S1</description>
+  <maintainer email="aduff001@terpmail.umd.edu">aduff001</maintainer>
+  <license>GNU GPLv3</license>
 
   <depend>rclpy</depend>
   <depend>geometry_msgs</depend>
   <depend>nav_msgs</depend>
   <depend>sensor_msgs</depend>
   <depend>tf_transformations</depend>
+  <depend>ros_gz_sim</depend>
+  <depend>ros_gz_bridge</depend>
+  <depend>ros_gz_interfaces</depend>
+  <depend>std_msgs</depend>
+  <depend>std_srvs</depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
