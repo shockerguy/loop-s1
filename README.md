@@ -94,10 +94,15 @@ side. The narrow forward sector is deliberate: it keeps a wall the vehicle is
 driving *past* from reading as one it is about to hit. Right-hand wall
 following never consults `left`; it is computed for the logs.
 
-Pick the goal at launch, or retarget a running vehicle over a topic:
+By default `waypoint_generator` (below) picks the goals. With it off, pick
+the goal at launch, or retarget a running vehicle over a topic:
 
-    ros2 launch waypoint_nav spawn_demo.launch.py goal_x:=8.0 goal_y:=-4.0
+    ros2 launch waypoint_nav spawn_demo.launch.py waypoints:=false goal_x:=8.0 goal_y:=-4.0
     ros2 topic pub --once /vehicle/goal geometry_msgs/msg/Point "{x: -6.0, y: 3.0}"
+
+The controller publishes its state (`go_to_goal`, `reached`,
+`unreachable`, ...) on `/vehicle/nav_state` (`std_msgs/String`) whenever it
+changes.
 
 Useful knobs: `goal_tolerance`, `linear_speed`, `turn_speed` (in-place yaw
 rate), `turn_radius` (the clockwise hunting arc), `obstacle_distance`,
@@ -112,3 +117,37 @@ exercises the whole algorithm - including full runs around a wall and around
 a walled-in goal - without starting a graph:
 
     colcon test --packages-select waypoint_nav
+
+## Waypoints
+
+`waypoint_generator` keeps the vehicle busy indefinitely. It draws a
+waypoint uniformly from x, y in [-12, 12] (`waypoint_bound`), rejecting any
+point closer than 1.5 m (`wall_clearance`) to a wall's footprint or closer
+than 2 m to the vehicle. It publishes the waypoint on `/vehicle/goal` and
+marks it on the ground with a green disc 0.3 m in radius. Once the vehicle's
+center is within `goal_tolerance` of the waypoint, it draws the next one by
+the same rules.
+
+    /walls              std_msgs/Float64MultiArray  N x 5 rows: x, y, yaw, length, thickness
+    /vehicle/goal       geometry_msgs/Point         current waypoint, to vehicle_controller
+    /vehicle/nav_state  std_msgs/String             controller state, from vehicle_controller
+
+  * **Walls** come from `random_cube_spawner`, which publishes every wall it
+    has requested on `/walls`. The topic is transient local, so a late
+    subscriber still gets the full list. A wall added later through
+    `~/spawn_cube` republishes the list, and a waypoint the new wall crowds
+    is replaced.
+  * **Giving up** - when the controller reports `unreachable`, the generator
+    draws a new waypoint instead of leaving the vehicle parked.
+  * **Hand-off** - the controller's goal subscription is volatile, so the
+    generator re-sends the current waypoint whenever a `vehicle_controller`
+    subscription appears. It ignores other subscribers, such as
+    `ros2 topic echo`, because every goal restarts Bug2.
+  * **Marker** - a static, visual-only model: the vehicle drives over it, and
+    it sits well below the lidar's scan plane. It is spawned once through
+    `/world/spawn_demo/create` and moved through `/world/spawn_demo/set_pose`.
+
+Launch arguments: `waypoints` (default `true`), `waypoint_bound`,
+`wall_clearance`, `waypoint_seed` (-1 for random; the seed is logged).
+
+    ros2 launch waypoint_nav spawn_demo.launch.py seed:=42 waypoint_seed:=5

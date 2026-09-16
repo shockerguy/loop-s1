@@ -4,13 +4,21 @@ The vehicle's front lidar is a gpu_lidar sensor in models/vehicle/model.sdf,
 rendered by the world's Sensors system and bridged out as
 /vehicle/scan (sensor_msgs/LaserScan). lidar_scanner cleans that scan up into
 /vehicle/depths (std_msgs/Float32MultiArray), which vehicle_controller reads
-alongside /vehicle/odom to drive itself to goal_x, goal_y with Bug2.
+alongside /vehicle/odom to drive itself to a goal with Bug2.
+
+waypoint_generator supplies that goal: a random point in
+[-waypoint_bound, waypoint_bound]^2 at least wall_clearance from every wall,
+marked on the ground by a green disc and replaced with a new one each time
+the vehicle gets within goal_tolerance of it. waypoints:=false turns it off,
+and the vehicle drives to goal_x, goal_y once instead.
 
     ros2 launch waypoint_nav spawn_demo.launch.py
     ros2 launch waypoint_nav spawn_demo.launch.py count:=8 seed:=42
-    ros2 launch waypoint_nav spawn_demo.launch.py goal_x:=8.0 goal_y:=-4.0
+    ros2 launch waypoint_nav spawn_demo.launch.py waypoint_seed:=7
+    ros2 launch waypoint_nav spawn_demo.launch.py waypoints:=false goal_x:=8.0 goal_y:=-4.0
 
-Retarget a running vehicle without relaunching:
+Retarget a running vehicle without relaunching (with waypoints:=false, or
+the generator's next waypoint overrides it):
 
     ros2 topic pub --once /vehicle/goal geometry_msgs/msg/Point "{x: -6.0, y: 3.0}"
 """
@@ -97,6 +105,8 @@ def launch_setup(context, *args, **kwargs):
         name='gz_service_bridge',
         arguments=[
             f'/world/{WORLD_NAME}/create@ros_gz_interfaces/srv/SpawnEntity',
+            # Moves the waypoint marker.
+            f'/world/{WORLD_NAME}/set_pose@ros_gz_interfaces/srv/SetEntityPose',
             '/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock',
             # Topic names are set in models/vehicle/model.sdf.
             '/vehicle/cmd_vel@geometry_msgs/msg/Twist]gz.msgs.Twist',
@@ -132,6 +142,23 @@ def launch_setup(context, *args, **kwargs):
         output='screen',
     )
 
+    waypoints = Node(
+        package='waypoint_nav',
+        executable='waypoint_generator',
+        name='waypoint_generator',
+        parameters=[{
+            'world_name': WORLD_NAME,
+            'bound': LaunchConfiguration('waypoint_bound'),
+            'wall_clearance': LaunchConfiguration('wall_clearance'),
+            # Same radius the controller stops at, so a new waypoint appears
+            # exactly when the vehicle arrives at the old one.
+            'reach_radius': LaunchConfiguration('goal_tolerance'),
+            'seed': LaunchConfiguration('waypoint_seed'),
+        }],
+        output='screen',
+        condition=IfCondition(LaunchConfiguration('waypoints')),
+    )
+
     controller = Node(
         package='waypoint_nav',
         executable='vehicle_controller',
@@ -156,7 +183,8 @@ def launch_setup(context, *args, **kwargs):
     # Give the Gazebo server a moment to advertise its services before the
     # bridge goes looking for them. The spawner polls, so it can start with
     # the bridge.
-    delayed = TimerAction(period=4.5, actions=[bridge, spawner, lidar])
+    delayed = TimerAction(period=4.5,
+                          actions=[bridge, spawner, lidar, waypoints])
 
     # Hold the vehicle still until the walls are in. clear_radius only keeps
     # them off the origin, so a wall arriving after the vehicle has moved
@@ -187,10 +215,26 @@ def generate_launch_description():
         DeclareLaunchArgument('clear_radius', default_value='2.0',
                               description='Keep walls this far from the '
                                           'vehicle spawn at the origin (m)'),
+        DeclareLaunchArgument('waypoints', default_value='true',
+                              description='Drive to an endless series of '
+                                          'random waypoints; false drives '
+                                          'to goal_x, goal_y once'),
+        DeclareLaunchArgument('waypoint_bound', default_value='12.0',
+                              description='Waypoint x and y range is '
+                                          '[-waypoint_bound, waypoint_bound]'),
+        DeclareLaunchArgument('wall_clearance', default_value='1.5',
+                              description='Keep waypoints at least this far '
+                                          'from any wall (m)'),
+        DeclareLaunchArgument('waypoint_seed', default_value='-1',
+                              description='Waypoint RNG seed; -1 for a '
+                                          'random one'),
         DeclareLaunchArgument('goal_x', default_value='8.0',
-                              description='Goal x in the odom frame (m)'),
+                              description='Goal x in the odom frame (m); '
+                                          'only used until the first '
+                                          'waypoint arrives'),
         DeclareLaunchArgument('goal_y', default_value='0.0',
-                              description='Goal y in the odom frame (m)'),
+                              description='Goal y in the odom frame (m); '
+                                          'see goal_x'),
         DeclareLaunchArgument('goal_tolerance', default_value='1.0',
                               description='Goal reached inside this radius '
                                           '(m); default is the width of the '

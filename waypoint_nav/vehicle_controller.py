@@ -85,6 +85,9 @@ depths_topic : str      Depth array from lidar_scanner. Default
 odom_topic : str        Odometry from the vehicle. Default "/vehicle/odom".
 goal_topic : str        geometry_msgs/Point topic that reassigns the goal at
                         runtime. Default "/vehicle/goal".
+state_topic : str       std_msgs/String topic the Bug2 state (a Bug2State
+                        value, e.g. "reached") is published on whenever it
+                        changes. Default "/vehicle/nav_state".
 rate : float            Publish rate in Hz. Default 20.0.
 goal_x, goal_y : float  Goal position in the odom frame. Default (8.0, 0.0).
 goal_tolerance : float  Goal counts as reached inside this radius, measured
@@ -158,7 +161,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from rclpy.signals import SignalHandlerOptions
-from std_msgs.msg import Float32MultiArray
+from std_msgs.msg import Float32MultiArray, String
 
 
 def beam_bearing_deg(index: int, count: int, fov_deg: float) -> float:
@@ -525,6 +528,7 @@ class VehicleController(Node):
         self.declare_parameter('depths_topic', '/vehicle/depths')
         self.declare_parameter('odom_topic', '/vehicle/odom')
         self.declare_parameter('goal_topic', '/vehicle/goal')
+        self.declare_parameter('state_topic', '/vehicle/nav_state')
         self.declare_parameter('rate', 20.0)
         self.declare_parameter('goal_x', 8.0)
         self.declare_parameter('goal_y', 0.0)
@@ -605,6 +609,10 @@ class VehicleController(Node):
         goal_topic = self.get_parameter('goal_topic').value
 
         self.pub = self.create_publisher(Twist, topic, 10)
+        # Reliable, like goals: waypoint_generator acts on a single
+        # "unreachable", so it must not be dropped.
+        self.state_pub = self.create_publisher(
+            String, self.get_parameter('state_topic').value, 10)
         # Matches the publisher in lidar_scanner: best effort, shallow queue.
         self.create_subscription(
             Float32MultiArray, depths_topic, self._on_depths,
@@ -695,6 +703,7 @@ class VehicleController(Node):
             f'to goal, sectors R {right:.2f} F {forward:.2f} L {left:.2f} m')
         if state is not self._last_state:
             self._last_state = state
+            self.state_pub.publish(String(data=state.value))
             if state is Bug2State.REACHED:
                 self.get_logger().info(f'Goal reached. {message}')
             elif state is Bug2State.BACK_UP:

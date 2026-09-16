@@ -34,6 +34,7 @@ setup(
             'lidar_scanner = waypoint_nav.lidar_scanner:main',
             'random_cube_spawner = waypoint_nav.random_cube_spawner:main',
             'vehicle_controller = waypoint_nav.vehicle_controller:main',
+            'waypoint_generator = waypoint_nav.waypoint_generator:main',
         ],
     },
 )

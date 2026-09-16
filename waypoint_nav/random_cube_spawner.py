@@ -28,6 +28,11 @@ MAX_PLACEMENT_TRIES samples is skipped with a warning rather than forced in.
 
 Also advertises ~/spawn_cube (std_srvs/Trigger) so you can add more walls
 without restarting the sim.
+
+Publishes the footprint of every wall requested so far on /walls
+(std_msgs/Float64MultiArray, transient local, see walls_to_msg), so that
+waypoint_generator can keep waypoints clear of them. The list is republished
+whenever it changes.
 """
 
 import math
@@ -37,8 +42,10 @@ import rclpy
 from geometry_msgs.msg import Pose
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, QoSProfile
 from ros_gz_interfaces.msg import EntityFactory
 from ros_gz_interfaces.srv import SpawnEntity
+from std_msgs.msg import Float64MultiArray, MultiArrayDimension
 from std_srvs.srv import Trigger
 
 # Resampling budget for clear_radius and wall-wall overlap. Only runs out if
@@ -84,6 +91,32 @@ def footprints_overlap(a: tuple, b: tuple) -> bool:
         if abs(dx * nx + dy * ny) >= radius:
             return False
     return True
+
+
+# Columns of one row in the /walls array: center, yaw, length, thickness.
+WALL_FIELDS = ('x', 'y', 'yaw', 'size_x', 'size_y')
+
+
+def walls_to_msg(footprints) -> Float64MultiArray:
+    """Pack (x, y, yaw, sx, sy) footprints into an N x 5 array message."""
+    msg = Float64MultiArray()
+    rows = MultiArrayDimension(
+        label='wall', size=len(footprints),
+        stride=len(footprints) * len(WALL_FIELDS))
+    cols = MultiArrayDimension(
+        label=','.join(WALL_FIELDS), size=len(WALL_FIELDS),
+        stride=len(WALL_FIELDS))
+    msg.layout.dim = [rows, cols]
+    msg.data = [float(v) for footprint in footprints for v in footprint]
+    return msg
+
+
+def walls_from_msg(msg: Float64MultiArray) -> list:
+    """Inverse of walls_to_msg: a list of (x, y, yaw, sx, sy) tuples."""
+    width = len(WALL_FIELDS)
+    data = list(msg.data)
+    return [tuple(data[i:i + width])
+            for i in range(0, len(data) - width + 1, width)]
 
 
 def prism_sdf(name: str, sx: float, sy: float, sz: float, static: bool) -> str:
@@ -164,6 +197,12 @@ class RandomCubeSpawner(Node):
 
         self.create_service(Trigger, '~/spawn_cube', self._on_trigger)
 
+        # Transient local: waypoint_generator may start after the walls are
+        # in, and still needs the whole list.
+        self.walls_pub = self.create_publisher(
+            Float64MultiArray, '/walls',
+            QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
+
         self.get_logger().info(f'Waiting for {service_name} ...')
         self._pending = self.get_parameter('count').value
         self._wait_timer = self.create_timer(0.5, self._wait_for_service)
@@ -175,6 +214,12 @@ class RandomCubeSpawner(Node):
         self.get_logger().info('Service is up.')
         for _ in range(self._pending):
             self.spawn_random_cube()
+        # Published even with no walls, so waypoint_generator is not left
+        # waiting for a list that will never come.
+        self.publish_walls()
+
+    def publish_walls(self):
+        self.walls_pub.publish(walls_to_msg(list(self._footprints.values())))
 
     def _on_trigger(self, request, response):
         if not self.cli.service_is_ready():
@@ -182,6 +227,7 @@ class RandomCubeSpawner(Node):
             response.message = 'Spawn service not available'
             return response
         name = self.spawn_random_cube()
+        self.publish_walls()
         if name is None:
             response.success = False
             response.message = 'No free placement found; see node log'
@@ -257,6 +303,7 @@ class RandomCubeSpawner(Node):
             result = future.result()
         except Exception as exc:  # noqa: BLE001 - want the reason in the log
             self._footprints.pop(name, None)
+            self.publish_walls()
             self.get_logger().error(f'Spawn of {name} raised: {exc}')
             return
 
@@ -269,6 +316,7 @@ class RandomCubeSpawner(Node):
                 f'yaw {math.degrees(yaw):.1f} deg')
         else:
             self._footprints.pop(name, None)
+            self.publish_walls()
             self.get_logger().warning(
                 f'Gazebo refused to spawn {name} (check for a name collision '
                 f'or malformed SDF)')
